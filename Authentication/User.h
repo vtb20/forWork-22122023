@@ -22,6 +22,9 @@
 #include <QTimer>
 #include "DatabaseConnection.h"
 #include "TokenManager.h"
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QSqlRecord>
 
 class User:public QObject {
     Q_OBJECT
@@ -29,7 +32,7 @@ class User:public QObject {
 public:
     User() : db(DatabaseConnection::connect()) {}
 
-    // Xử lý đăng ký
+    // Xử lý đăng ký user cho client
     QHttpServerResponse Register(const QHttpServerRequest &request) {
         QJsonDocument jsonDoc = QJsonDocument::fromJson(request.body());
         QJsonObject jsonObj = jsonDoc.object();
@@ -57,79 +60,107 @@ public:
         }
     };
 
-    //Xử lý Login
-    QHttpServerResponse LoginRequest(const QHttpServerRequest &request) {
+    //Hàm Xử lý Authorization request
+    QHttpServerResponse HandleTokenRequest(const QHttpServerRequest &request) {
         QByteArray data = request.body();
         QString grantType;
         QString username;
         QString password;
+        QString client_id;
 
-        // Kiểm tra xem dữ liệu có phải là JSON hay không
-        QJsonDocument jsonDoc = QJsonDocument::fromJson(data);
-        if (!jsonDoc.isNull() && jsonDoc.isObject()) {
-            QJsonObject jsonObj = jsonDoc.object();
-            grantType = jsonObj.value("grant_type").toString();
-            username = jsonObj.value("username").toString();
-            password = jsonObj.value("password").toString();
-        } else {
-            // Dữ liệu không phải là JSON, giả sử là URL-encoded
-            QUrlQuery urlQuery(QString::fromUtf8(data));
+        QUrlQuery urlQuery(QString::fromUtf8(data));
+        grantType = urlQuery.queryItemValue("grant_type");
+        client_id = urlQuery.queryItemValue("client_id");
 
-            grantType = urlQuery.queryItemValue("grant_type");
+        // kiểm tra sự tồn tại của grant_type và content_type
+        if(hasContentType(request)==false || data.isEmpty() ||grantType.isEmpty() || client_id.isEmpty() )
+        {
+            return ErrorResponse("invalid request!","Missing requied parameter or wrong content-type!");
+        }
+
+        // Xử lý cho resource owner password
+        if (grantType == "password") {
             username = urlQuery.queryItemValue("username");
             password = urlQuery.queryItemValue("password");
+            if(username.isEmpty()||password.isEmpty())
+            {
+                return ErrorResponse("invalid_request","Missing username or password");
+            }
+            bool isAuthenticated = authenticateUser(username, password);
+            if (isAuthenticated) {
+                QString userID = getUserIdByUsername(username);
+                return ResponseWithTokens(userID);
+            } else {
+                return ErrorResponse("invalid_request","Sai tên đăng nhập hoặc mật khẩu");
+            }
         }
-
-        // Xác thực và xử lý yêu cầu
-        if (grantType != "password" || username.isEmpty() || password.isEmpty()) {
-            return QHttpServerResponse("Yêu cầu không hợp lệ", QHttpServerResponse::StatusCode::BadRequest);
-        }
-
-        bool isAuthenticated = authenticateUser(username, password);
-
-        if (isAuthenticated) {
-            QString userID = getUserIdByUsername(username);
-            QString token = Token.createAccessToken(userID);
-            QString rfToken = Token.createRFtoken(userID);
-
-            QJsonObject jsonResponse;
-            jsonResponse["access_token"] = token;
-            jsonResponse["refresh_token"] = rfToken;
-            jsonResponse["token_type"] = "Bearer";
-            jsonResponse["expires_in"] = true;
-
-            QJsonDocument jsonResponseDoc(jsonResponse);
-            QByteArray responseBody = jsonResponseDoc.toJson();
-            return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Ok);
+        // Xử lý authorization code
+        else if (grantType == "authorization_code") {
+            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
+       } else if (grantType == "client_credentials") {
+            // Xử lý client credentials
+            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
+        } else if (grantType == "urn:ietf:params:oauth:grant-type:device_code") {
+            // Xử lý device code
+            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
+        } else if (grantType == "refresh_token") {
+            // Xử lý refresh token
+            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
         } else {
-            QJsonObject jsonResponse;
-            jsonResponse["message"] = "Sai tên đăng nhập hoặc mật khẩu";
-            jsonResponse["success"] = false;
-
-            QJsonDocument jsonResponseDoc(jsonResponse);
-            QByteArray responseBody = jsonResponseDoc.toJson();
-            return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Unauthorized);
+            // Trường hợp grant_type không hợp lệ
+            return ErrorResponse("invalid_request","unsupported_grant_type");
         }
     }
 
+    //Hàm phản hồi access token
+    QHttpServerResponse ResponseWithTokens(const QString &userID) {
+        QString token = Token.createAccessToken(userID);
+        QString rfToken = Token.createRFtoken(userID);
 
-    bool authenticateUser(const QString &username, const QString &password) {
-        qDebug() << "Authenticating user:" << username;
-        QString hashpass =  hashPassword(password);
-        qDebug() << "Hashed password:" << hashpass;
+        QJsonObject jsonResponse;
+        jsonResponse["access_token"] = token;
+        jsonResponse["refresh_token"] = rfToken;
+        jsonResponse["token_type"] = "Bearer";
+        jsonResponse["expires_in"] = 7200;
 
+        QJsonDocument jsonResponseDoc(jsonResponse);
+        QByteArray responseBody = jsonResponseDoc.toJson();
+        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Ok);
+    }
+    // Hàm khởi tạo thông báo lỗi
+    QHttpServerResponse ErrorResponse(const QString &errorMessage,const QString &errorDetail) {
+        QJsonObject jsonResponse;
+        jsonResponse["error"] = errorMessage;
+        jsonResponse["error_description"] = errorDetail;
+
+        QJsonDocument jsonResponseDoc(jsonResponse);
+        QByteArray responseBody = jsonResponseDoc.toJson();
+        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Unauthorized);
+    }
+     // hàm xử lý call API từ user
+    QHttpServerResponse Example(const QHttpServerRequest &request) {
+        qDebug()<<request.headers();
         QSqlQuery query(db);
-        query.prepare("SELECT * FROM users WHERE name = :username AND password = :password");
-        query.bindValue(":username", username);
-        query.bindValue(":password", hashpass);
 
-        if (!query.exec()) {
-            qDebug() << "Query failed:" << query.lastError().text();
-            return false;
+        if (!query.exec("SELECT name FROM users")) {
+            // Xử lý lỗi khi thực hiện truy vấn
+            return ErrorResponse("Query execution error", query.lastError().text());
         }
-        bool isAuthenticated = query.next();
-        qDebug() << "Authentication result:" << isAuthenticated;
-        return isAuthenticated;
+
+        QJsonArray jsonArray;
+        while (query.next()) {
+            QJsonObject jsonObject;
+            QSqlRecord record = query.record();
+            for (int i = 0; i < record.count(); ++i) {
+                jsonObject[record.fieldName(i)] = QJsonValue::fromVariant(record.value(i));
+            }
+            jsonArray.append(jsonObject);
+        }
+
+        QJsonDocument jsonDocument(jsonArray);
+        QByteArray jsonData = jsonDocument.toJson();
+        // Trả cho client thông tin về tên của các user
+        return QHttpServerResponse("application/json", jsonData, QHttpServerResponse::StatusCode::Ok);
     }
 
 
@@ -237,6 +268,26 @@ private:
     QSqlDatabase db;
     TokenManager Token;
 
+    bool authenticateUser(const QString &username, const QString &password) {
+        qDebug() << "Authenticating user:" << username;
+        QString hashpass =  hashPassword(password);
+        qDebug() << "Hashed password:" << hashpass;
+
+        QSqlQuery query(db);
+        query.prepare("SELECT * FROM users WHERE name = :username AND password = :password");
+        query.bindValue(":username", username);
+        query.bindValue(":password", hashpass);
+
+        if (!query.exec()) {
+            qDebug() << "Query failed:" << query.lastError().text();
+            return false;
+        }
+        bool isAuthenticated = query.next();
+        qDebug() << "Authentication result:" << isAuthenticated;
+        return isAuthenticated;
+    }
+
+
     bool addNewUser(const QString &username, const QString &email, const QString &hashedPassword) {
         QSqlQuery insertQuery(db);
         insertQuery.prepare("INSERT INTO users (name, email, password,Admin) VALUES (:name, :email,:password,:Admin)");
@@ -275,6 +326,16 @@ private:
         QByteArray hashedBytes = QCryptographicHash::hash(passwordBytes, QCryptographicHash::Sha256);
         return QString(hashedBytes.toHex());
     }
+    bool hasContentType(const QHttpServerRequest &request) {
+        auto headers = request.headers();
+        for (const auto &header : headers) {
+            if (header.first == "Content-Type" && header.second == "application/x-www-form-urlencoded") {
+                return true;
+            }
+        }
+        return false;
+    }
+
 };
 
 #endif // USER_H

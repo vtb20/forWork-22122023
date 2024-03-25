@@ -39,6 +39,9 @@ int main(int argc, char *argv[])
 
     httpServer.route("/api/auth/refreshtoken", QHttpServerRequest::Method::Get,
                      [&User](const QHttpServerRequest &request) { return User.handlerfToken(request); });
+   //Thêm URL mới trả về data cho client
+    protectedRoute(httpServer,"/o/oauth2/example", QHttpServerRequest::Method::Get,
+        [&User](const QHttpServerRequest &request) { return User.Example(request); }, MiddlewareController);
 
     protectedRoute(httpServer,"/api/auth/logout", QHttpServerRequest::Method::Delete,
         [&User](const QHttpServerRequest &request) { return User.Logout(request); }, MiddlewareController);
