@@ -130,6 +130,71 @@ public:
             return ErrorResponse("invalid_request","Wrong username or password");
         }
     }
+    
+    //Hàm xử lý refresh token cho o2
+    QHttpServerResponse handleRereshToken(const QHttpServerRequest &request){
+
+        QByteArray data = request.body();
+            QUrlQuery urlQuery(QString::fromUtf8(data));
+
+            // Xử lý refresh token
+            QString refresh_token = urlQuery.queryItemValue("refresh_token");
+            if (refresh_token.isEmpty())
+            {
+                return ErrorResponse("invalid_request", "Missing refreshtoken in your requset");
+            }
+            QStringList listJwtParts = refresh_token.split(".");
+            if (listJwtParts.count() != 3)
+            {
+                return ErrorResponse("invalid_request", "token must have the format xxxx.yyyyy.zzzzz");
+            }
+            QJsonWebToken JTrftoken = Token.getRFtk(refresh_token);
+            QString OldrfToken = JTrftoken.getToken();
+            qDebug()<<"refresh token try to get new acTk from client:"<<OldrfToken;
+            //Kiểm tra refresh token với secret key
+
+            bool validateTK = JTrftoken.isValid();
+            if (!validateTK)
+            {
+                return ErrorResponse("invalid_request", " Refresh token is wrong");
+            }
+
+            // Lấy giá trị của khóa "sub" = userID
+            QString userID = JTrftoken.claim("sub");
+            QString expime = JTrftoken.claim("exp");
+            QString rfTokenID = JTrftoken.claim("jti");
+
+            //Kiểm tra thời gian sống của refresh token
+            if (!Token.TimelifeTK(expime))
+            {
+                return ErrorResponse("invalid_request", " Refresh token is expired");
+            }
+            if(!checkInvalidate(rfTokenID,refresh_token,userID))
+            {
+                return ErrorResponse("invalid_request", " Your token does not exist");
+            }
+            // khởi tạo token mới cho client
+            QString newACtk = Token.createAccessToken(userID,"2.0");
+            qDebug()<<"New access token create for users:"<<newACtk;
+            if (!remove_refreshtoken_Oauth2(userID,rfTokenID)){
+                qDebug()<<"refresh-token cant remove!";
+                }
+            else{
+                qDebug()<<"Removed token successful before create new token!";
+
+            }
+            QString newRefreshTK = Token.createRFtoken(userID,expime);
+
+            QJsonObject jsonResponse;
+            jsonResponse["access_token"] = newACtk;
+            jsonResponse["refresh_token"]= newRefreshTK;
+            jsonResponse["token_type"] = "Bearer";
+            jsonResponse["expires_in"] = 7200;// 2 tiếng đồng hồ
+            QJsonDocument jsonDoc(jsonResponse);
+            QByteArray responseBody = jsonDoc.toJson();
+            return QHttpServerResponse("application/json",responseBody,QHttpServerResponse::StatusCode::Ok);
+
+    };
 
     //Hàm phản hồi access token
     QHttpServerResponse ResponseWithTokens(const QString &userID) {
@@ -241,46 +306,6 @@ public:
             return QHttpServerResponse(mes, QHttpServerResponse::StatusCode::BadRequest);
         }
     }
-
-    // Xử lý các token hết hạn bằng refreshtoken
-    QHttpServerResponse handlerfToken (const QHttpServerRequest &request)
-    {
-        QJsonWebToken JTrftoken = Token.getRFtk(request);
-
-        QString rfToken = JTrftoken.getToken();
-        QString payload = JTrftoken.getPayloadQStr();
-
-        bool validateTK = JTrftoken.isValid();
-        if (!validateTK)
-        {   QString mes = "Refresh token is not validate!";
-            return QHttpServerResponse(mes,QHttpServerResponse::StatusCode::Unauthorized);
-        }
-        if (!Token.TimelifeTK(payload))
-        {
-            QString mes = " Refresh token is expired";
-            return QHttpServerResponse(mes,QHttpServerResponse::StatusCode::Unauthorized);
-        }
-        QSqlQuery query(db);
-        query.prepare("SELECT user_id FROM refresh_tokens WHERE token = :token");
-        query.bindValue(":token", rfToken);
-        if (!query.exec()) {
-            qDebug() << "Lỗi khi truy vấn cơ sở dữ liệu:" << query.lastError().text();
-            return QHttpServerResponse(QHttpServerResponse::StatusCode::InternalServerError);
-        }
-
-        if (!query.next()) {
-            QString mes = "Refresh token không tồn tại";
-            return QHttpServerResponse(mes, QHttpServerResponse::StatusCode::Unauthorized);
-        }
-        QString userId = query.value(0).toString();
-        QString newACtk = Token.createAccessToken(userId);
-
-        QJsonObject jsonResponse;
-        jsonResponse["access_token:"] = newACtk;
-        QJsonDocument jsonDoc(jsonResponse);
-        QByteArray responseBody = jsonDoc.toJson();
-        return QHttpServerResponse("application/json",responseBody,QHttpServerResponse::StatusCode::Ok);
-    };
 
 
 private:
