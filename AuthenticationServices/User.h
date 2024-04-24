@@ -196,31 +196,6 @@ public:
 
     };
 
-    //Hàm phản hồi access token
-    QHttpServerResponse ResponseWithTokens(const QString &userID) {
-        QString token = Token.createAccessToken(userID);
-        QString rfToken = Token.createRFtoken(userID);
-
-        QJsonObject jsonResponse;
-        jsonResponse["access_token"] = token;
-        jsonResponse["refresh_token"] = rfToken;
-        jsonResponse["token_type"] = "Bearer";
-        jsonResponse["expires_in"] = 7200;
-
-        QJsonDocument jsonResponseDoc(jsonResponse);
-        QByteArray responseBody = jsonResponseDoc.toJson();
-        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Ok);
-    }
-    // Hàm khởi tạo thông báo lỗi
-    QHttpServerResponse ErrorResponse(const QString &errorMessage,const QString &errorDetail) {
-        QJsonObject jsonResponse;
-        jsonResponse["error"] = errorMessage;
-        jsonResponse["error_description"] = errorDetail;
-
-        QJsonDocument jsonResponseDoc(jsonResponse);
-        QByteArray responseBody = jsonResponseDoc.toJson();
-        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Unauthorized);
-    }
      // hàm xử lý call API từ user
     QHttpServerResponse Example(const QHttpServerRequest &request) {
         qDebug()<<request.headers();
@@ -380,6 +355,45 @@ private:
         return false;
     }
 
+    //Hàm phản hồi kèm access token + refresh token cho oAuth 2.0
+    QHttpServerResponse ResponseWithTokens(const QString &userID) {
+        QString token = Token.createAccessToken(userID,"2.0");
+        QString rfToken = Token.createRFtoken(userID);
+
+        QJsonObject jsonResponse;
+        jsonResponse["access_token"] = token;
+        jsonResponse["refresh_token"] = rfToken;
+        jsonResponse["token_type"] = "Bearer";
+        jsonResponse["expires_in"] = 7200;// 2 tiếng đồng hồ
+
+        QJsonDocument jsonResponseDoc(jsonResponse);
+        QByteArray responseBody = jsonResponseDoc.toJson();
+        qDebug()<<"Responsive authentication to User:"<<responseBody;
+        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Ok);
+    }
+    //Hàm phản hồi kèm oauth
+    QHttpServerResponse ResponseWithOauth1Tokens(const QString &userID) {
+        QString tokens = Token.createAccessToken(userID,"1.0");
+
+        qDebug()<<"oauth_token:"<<tokens;
+
+        QUrlQuery query;
+        query.addQueryItem("oauth_token", tokens);
+        QByteArray responseBody = query.toString(QUrl::FullyEncoded).toUtf8();
+        qDebug()<<"Responsive authentication to User:"<<responseBody;
+
+        return QHttpServerResponse("application/x-www-form-urlencoded", responseBody, QHttpServerResponse::StatusCode::Ok);
+    }
+    // Hàm khởi tạo thông báo lỗi
+    QHttpServerResponse ErrorResponse(const QString &errorMessage,const QString &errorDetail) {
+        QJsonObject jsonResponse;
+        jsonResponse["error"] = errorMessage;
+        jsonResponse["error_description"] = errorDetail;
+
+        QJsonDocument jsonResponseDoc(jsonResponse);
+        QByteArray responseBody = jsonResponseDoc.toJson();
+        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Unauthorized);
+    }
 };
 
 #endif // USER_H
