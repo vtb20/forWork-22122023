@@ -33,82 +33,101 @@ public:
     User() : db(DatabaseConnection::connect()) {}
 
     // Xử lý đăng ký user cho client
-    QHttpServerResponse Register(const QHttpServerRequest &request) {
-        QJsonDocument jsonDoc = QJsonDocument::fromJson(request.body());
-        QJsonObject jsonObj = jsonDoc.object();
+    // QHttpServerResponse Register(const QHttpServerRequest &request) {
+    //     QJsonDocument jsonDoc = QJsonDocument::fromJson(request.body());
+    //     QJsonObject jsonObj = jsonDoc.object();
 
-        QString username = jsonObj.value("username").toString();
-        QString email = jsonObj.value("email").toString();
-        QString password = jsonObj.value("password").toString();
+    //     QString username = jsonObj.value("username").toString();
+    //     QString email = jsonObj.value("email").toString();
+    //     QString password = jsonObj.value("password").toString();
 
-        if (password.length() < 6 || password.length() > 20) {
-            return QHttpServerResponse("Invalid password length",QHttpServerResponse::StatusCode::BadRequest);
-        }
-        QString hashedPassword = hashPassword(password);
-        if (username.length() < 6 || username.length() > 15 )
-        {
-            return QHttpServerResponse("Invalid username length",QHttpServerResponse::StatusCode::BadRequest);
-        }
-        if (email.length()< 10)
-        {
-            return QHttpServerResponse("Invalid email length",QHttpServerResponse::StatusCode::BadRequest);
-        }
-        if (addNewUser(username, email, hashedPassword)) {
-            return QHttpServerResponse("Registration successful",QHttpServerResponse::StatusCode::Ok);
-        } else {
-            return QHttpServerResponse("Failed to register user",QHttpServerResponse::StatusCode::BadRequest);
-        }
-    };
+    //     if (password.length() < 6 || password.length() > 20) {
+    //         return QHttpServerResponse("Invalid password length",QHttpServerResponse::StatusCode::BadRequest);
+    //     }
+    //     QString hashedPassword = hashPassword(password);
+    //     if (username.length() < 6 || username.length() > 15 )
+    //     {
+    //         return QHttpServerResponse("Invalid username length",QHttpServerResponse::StatusCode::BadRequest);
+    //     }
+    //     if (email.length()< 10)
+    //     {
+    //         return QHttpServerResponse("Invalid email length",QHttpServerResponse::StatusCode::BadRequest);
+    //     }
+    //     if (addNewUser(username, email, hashedPassword)) {
+    //         return QHttpServerResponse("Registration successful",QHttpServerResponse::StatusCode::Ok);
+    //     } else {
+    //         return QHttpServerResponse("Failed to register user",QHttpServerResponse::StatusCode::BadRequest);
+    //     }
+    // };
 
-    //Hàm Xử lý Authorization request
-    QHttpServerResponse HandleTokenRequest(const QHttpServerRequest &request) {
+    //Hàm Xử lý login request
+   QHttpServerResponse Login_for_O2(const QHttpServerRequest &request) {
         QByteArray data = request.body();
-        QString grantType;
+
         QString username;
         QString password;
-        QString client_id;
 
-        QUrlQuery urlQuery(QString::fromUtf8(data));
-        grantType = urlQuery.queryItemValue("grant_type");
-        client_id = urlQuery.queryItemValue("client_id");
-
-        // kiểm tra sự tồn tại của grant_type và content_type
-        if(hasContentType(request)==false || data.isEmpty() ||grantType.isEmpty() || client_id.isEmpty() )
+        // kiểm tra sự tồn tại của trường content-type và giá trị cúa nó có đúng là urlencode không ?
+        if (hasContentType(request)==false)
         {
-            return ErrorResponse("invalid request!","Missing requied parameter or wrong content-type!");
+            return ErrorResponse("invalid request!","Missing requied or wrong parameter!");
         }
+        // chuyển data từ bytear sang string dùng urlquery để lấy thông tin cần thiết
+        QUrlQuery urlQuery(QString::fromUtf8(data));
 
-        // Xử lý cho resource owner password
-        if (grantType == "password") {
-            username = urlQuery.queryItemValue("username");
-            password = urlQuery.queryItemValue("password");
-            if(username.isEmpty()||password.isEmpty())
+         // truy xuất dữ liệu dưới từ body thông tin username và password ra
+        username = urlQuery.queryItemValue("username");
+        password = urlQuery.queryItemValue("password");
+        //Kiểm tra xem các trường này có hay không
+        if(username.isEmpty()||password.isEmpty())
             {
                 return ErrorResponse("invalid_request","Missing username or password");
             }
-            bool isAuthenticated = authenticateUser(username, password);
-            if (isAuthenticated) {
+            // Tiếp túc sủ dụng username và password từ client để xác thực với database
+
+        bool isAuthenticated = authenticateUser(username, password);
+        if (isAuthenticated) {
                 QString userID = getUserIdByUsername(username);
+                qDebug()<<"Authentication from user:"<<userID;
                 return ResponseWithTokens(userID);
-            } else {
-                return ErrorResponse("invalid_request","Sai tên đăng nhập hoặc mật khẩu");
-            }
-        }
-        // Xử lý authorization code
-        else if (grantType == "authorization_code") {
-            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
-       } else if (grantType == "client_credentials") {
-            // Xử lý client credentials
-            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
-        } else if (grantType == "urn:ietf:params:oauth:grant-type:device_code") {
-            // Xử lý device code
-            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
-        } else if (grantType == "refresh_token") {
-            // Xử lý refresh token
-            return QHttpServerResponse(QHttpServerResponse::StatusCode::Ok);
+
         } else {
-            // Trường hợp grant_type không hợp lệ
-            return ErrorResponse("invalid_request","unsupported_grant_type");
+                return ErrorResponse("invalid_request","Wrong username or password");
+        }
+    }
+
+    // Hàm login cho auth 1.0
+    QHttpServerResponse Login_for_O1(const QHttpServerRequest &request) {
+        QByteArray data = request.body();
+
+        QString username;
+        QString password;
+        // kiểm tra sự tồn tại của trường content-type và giá trị cúa nó có đúng là urlencode không ?
+        if (hasContentType(request)==false)
+        {
+            return ErrorResponse("invalid request!","Missing requied or wrong parameter!");
+        }
+        // chuyển data từ bytear sang string dùng urlquery để lấy thông tin cần thiết
+        QUrlQuery urlQuery(QString::fromUtf8(data));
+
+        // truy xuất dữ liệu dưới từ body thông tin username và password ra
+        username = urlQuery.queryItemValue("username");
+        password = urlQuery.queryItemValue("password");
+        //Kiểm tra xem các trường này có hay không
+        if(username.isEmpty()||password.isEmpty())
+        {
+            return ErrorResponse("invalid_request","Missing username or password");
+        }
+        // Tiếp túc sủ dụng username và password từ client để xác thực với database
+        bool isAuthenticated = authenticateUser(username, password);
+        if (isAuthenticated) {
+
+                QString userID = getUserIdByUsername(username);
+                qDebug()<<"Authentication from user:"<<userID;
+                return ResponseWithOauth1Tokens(userID);
+
+        } else {
+            return ErrorResponse("invalid_request","Wrong username or password");
         }
     }
 
