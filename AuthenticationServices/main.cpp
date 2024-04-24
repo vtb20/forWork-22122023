@@ -5,12 +5,13 @@
 #include "User.h"
 #include "AuthMiddleware.h"
 
-void protectedRoute(QHttpServer &httpServer, const QString &path, QHttpServerRequest::Method method,
+
+void protectedRoute_02(QHttpServer &httpServer, const QString &path, QHttpServerRequest::Method method,
                     const std::function<QHttpServerResponse(const QHttpServerRequest &)> &handler,
                     Middleware &middleware)
 {
     httpServer.route(path, method, [&middleware, &handler](const QHttpServerRequest &request) {
-        auto result = middleware.checkingToken(request);
+        auto result = middleware.checkingToken_O2(request);
         if (result.statusCode() == QHttpServerResponse::StatusCode::Continue) {
             return handler(request);
         } else {
@@ -19,32 +20,53 @@ void protectedRoute(QHttpServer &httpServer, const QString &path, QHttpServerReq
     });
 }
 
+void protectedRoute_01(QHttpServer &httpServer, const QString &path, QHttpServerRequest::Method method,
+                       const std::function<QHttpServerResponse(const QHttpServerRequest &)> &handler,
+                       Middleware &middleware)
+{
+    httpServer.route(path, method, [&middleware, &handler](const QHttpServerRequest &request) {
+        auto result = middleware.checkingToken_O1(request);
+        if (result.statusCode() == QHttpServerResponse::StatusCode::Continue) {
+            return handler(request);
+        } else {
+            return result;
+        }
+    });
+}
+
+
+
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
     Middleware MiddlewareController;
     User User;
     QHttpServer httpServer;
-    // static const char *GftEndpoint = "https://accounts.google.com/o/oauth2/auth";
-    // static const char *GftTokenUrl = "https://accounts.google.com/o/oauth2/token";
-    // static const char *GftRefreshUrl = "https://accounts.google.com/o/oauth2/token";
 
-    //Route for User:
+    //Login o2
+    httpServer.route("/o/auth2/token", QHttpServerRequest::Method::Post,
+                         [&User](const QHttpServerRequest &request) { return User.Login_for_O2(request); });
+    //Login o1
+    httpServer.route("/o/oauth1/access_token", QHttpServerRequest::Method::Post,
+                     [&User] (const QHttpServerRequest &request) {return User.Login_for_O1(request);  });
+    //Logout o2
+    httpServer.route("/o/auth2/logout", QHttpServerRequest::Method::Post,
+                     [&User](const QHttpServerRequest &request) { return User.Logout_o2(request); });
+    //Logout o1
+    httpServer.route("/o/auth1/logout", QHttpServerRequest::Method::Post,
+                     [&User](const QHttpServerRequest &request) { return User.Logout_o1(request); });
 
-    httpServer.route("/o/oauth2/token", QHttpServerRequest::Method::Post,
-                     [&User](const QHttpServerRequest &request) { return User.LoginRequest(request); });
+    //Refesh token o2
+    httpServer.route("/o/auth2/refreshtoken", QHttpServerRequest::Method::Post,
+                     [&User](const QHttpServerRequest &request) { return User.handleRereshToken(request); });
 
-    httpServer.route("/api/auth/register", QHttpServerRequest::Method::Post,
-                     [&User](const QHttpServerRequest &request) { return User.Register(request); });
-
-    httpServer.route("/api/auth/refreshtoken", QHttpServerRequest::Method::Get,
-                     [&User](const QHttpServerRequest &request) { return User.handlerfToken(request); });
-   //Thêm URL mới trả về data cho client
-    protectedRoute(httpServer,"/o/oauth2/example", QHttpServerRequest::Method::Get,
+    //Thêm URL mới trả về data cho client
+    protectedRoute_02(httpServer,"/o/oauth2/example", QHttpServerRequest::Method::Get,
         [&User](const QHttpServerRequest &request) { return User.Example(request); }, MiddlewareController);
 
-    protectedRoute(httpServer,"/api/auth/logout", QHttpServerRequest::Method::Delete,
-        [&User](const QHttpServerRequest &request) { return User.Logout(request); }, MiddlewareController);
+    //Xác thực Oauth 1.0
+    protectedRoute_01(httpServer,"/o/oauth/example", QHttpServerRequest::Method::Get,
+        [&User](const QHttpServerRequest &request) { return User.Example(request); }, MiddlewareController);
 
     const auto port = httpServer.listen(QHostAddress::Any, 8080);
     if (!port) {
