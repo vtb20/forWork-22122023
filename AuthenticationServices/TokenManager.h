@@ -60,12 +60,15 @@ public:
         return token;
     }
 
-    //Hàm tạo refresh token
-    QString createRFtoken(const QString &userID) {
-
+        //Hàm tạo refresh token
+    QString createRFtoken(const QString &userID, const QString &exp = "") {
         QString rfTokenId = generateTokenId(userID);
-        qDebug()<< rfTokenId;
-        QString expirationTime = QString::number(QDateTime::currentDateTime().addSecs(7 * 60 * 60).toSecsSinceEpoch());
+        QString expirationTime;
+        if (exp.isEmpty()) {
+            expirationTime = QString::number(QDateTime::currentDateTime().addDays(1).toSecsSinceEpoch());
+        } else {
+            expirationTime = exp;
+        }
         QString iatTime = QString::number(QDateTime::currentDateTime().toSecsSinceEpoch());
         QJsonWebToken rfToken;
         rfToken.appendClaim("sub", userID);
@@ -79,19 +82,17 @@ public:
         QJsonDocument rfTokenHeaderDoc(rfTokenHeader);
         rfToken.setHeaderJDoc(rfTokenHeaderDoc);
 
-
         QString rfSecretKey = getSecretKeyrftk();
         rfToken.setSecret(rfSecretKey);
         QString rfTokenString = rfToken.getToken();
-
+        //Thêm refresh token mới vào trong bảng
         QSqlQuery insertQuery(db);
-        insertQuery.prepare("INSERT INTO refresh_tokens (id,user_id, token, expires_at, iat, validate) VALUES (:rfId, :user_id, :token, :expires_at, :iat, :validate)");
+        insertQuery.prepare("INSERT INTO refresh_tokens (id,user_id, token, expires_at, iat) VALUES (:rfId, :user_id, :token, :expires_at, :iat)");
         insertQuery.bindValue(":rfId", rfTokenId);
         insertQuery.bindValue(":user_id", userID);
         insertQuery.bindValue(":token", rfTokenString);
         insertQuery.bindValue(":expires_at", expirationTime);
         insertQuery.bindValue(":iat", iatTime);
-        insertQuery.bindValue(":validate", 1);
 
         if (!insertQuery.exec()) {
             qDebug() << "Insert failed:" << insertQuery.lastError().text();
@@ -99,6 +100,7 @@ public:
         }
         return rfTokenString;
     }
+
     //Hàm khởi tạo ID cho refersh TK
     QString generateTokenId(const QString &userID) {
         QString uniqueString = QDateTime::currentDateTimeUtc().toString(Qt::ISODate) + userID;
