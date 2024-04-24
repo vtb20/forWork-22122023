@@ -394,6 +394,51 @@ private:
         QByteArray responseBody = jsonResponseDoc.toJson();
         return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Unauthorized);
     }
+//Hàm kiểm tra sự tồn tại của refreshtoken
+    bool checkInvalidate(const QString &token_id, const QString &token,const QString &userID)
+    {
+        QSqlQuery checkqr(db);
+        checkqr.prepare("SELECT * FROM refresh_tokens WHERE id = :token_id AND token = :token_value and user_id = :user_id");
+        checkqr.bindValue(":token_id", token_id);
+        checkqr.bindValue(":token_value", token);
+        checkqr.bindValue(":user_id", userID);
+
+        if (!checkqr.exec()) {
+            qDebug() << "Query failed:" << checkqr.lastError().text();
+            return false;
+        }
+
+        if(checkqr.next())
+        {
+            qDebug() << "An id that matches the token value exists";
+            return true;
+        }
+        else{
+            qDebug() << "no id matching token value exists.";
+            return false;
+        }
+    }
+
+    // xóa refresh token ra khỏi database
+    bool remove_refreshtoken_Oauth2(const QString &UserId, const QString &token_id){
+        QSqlQuery updateQuery(db);
+        updateQuery.prepare("DELETE FROM refresh_tokens WHERE user_id = :userID and id = :token_id");
+        updateQuery.bindValue(":userID", UserId);
+        updateQuery.bindValue(":token_id", token_id);
+
+        if (!updateQuery.exec()) {
+            qDebug() << "Delete failed:" << updateQuery.lastError().text();
+            return false;
+        }
+        int affectedRows = updateQuery.numRowsAffected();
+        if (affectedRows > 0) {
+            qDebug() << "Refresh token của user đã được xóa thành công cho user ID: " << UserId;
+            return true;
+        } else {
+            qDebug() << "refresh token đã được xóa trước đó cho user ID: " << UserId;
+            return true;
+        }
+    }
 };
 
 #endif // USER_H
