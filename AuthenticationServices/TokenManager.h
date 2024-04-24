@@ -13,6 +13,18 @@
 #include <QSqlError>
 #include "DatabaseConnection.h"
 #include <QTimer>
+#include <QPair>
+#include <QString>
+#include <QMap>
+#include <QObject>
+#include <QByteArray>
+#include <QDateTime>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+
+
 
 class TokenManager:public QObject {
     Q_OBJECT
@@ -21,9 +33,9 @@ public:
     TokenManager():db(DatabaseConnection::connect()){
         // Khởi tạo timer và thiết lập khoảng thời gian định kỳ
         cleanupBLTimer = new QTimer(this);
-        cleanupBLTimer->setInterval(5 * 60 * 60 * 1000); // 5 tiếng
+        cleanupBLTimer->setInterval(30*  60 * 1000); // 30 phút
         // Kết nối signal và slot
-        connect(cleanupBLTimer, &QTimer::timeout, this, &TokenManager::removeExpiredTokensFromBlacklist);
+        connect(cleanupBLTimer, &QTimer::timeout, this, &TokenManager::removeExpiredTokens);
         cleanupBLTimer->start();
     }
 
@@ -60,7 +72,7 @@ public:
         return token;
     }
 
-        //Hàm tạo refresh token
+    //Hàm tạo refresh token
     QString createRFtoken(const QString &userID, const QString &exp = "") {
         QString rfTokenId = generateTokenId(userID);
         QString expirationTime;
@@ -101,30 +113,28 @@ public:
         return rfTokenString;
     }
 
+
     //Hàm khởi tạo ID cho refersh TK
     QString generateTokenId(const QString &userID) {
         QString uniqueString = QDateTime::currentDateTimeUtc().toString(Qt::ISODate) + userID;
         QByteArray hashBytes = QCryptographicHash::hash(uniqueString.toUtf8(), QCryptographicHash::Md5);
         return QString::fromLatin1(hashBytes.toHex());
     }
-    // Xóa AC token hết hạn khỏi database
-    void removeExpiredTokensFromBlacklist() {
+
+    // Xóa refresh token hết hạn khỏi database
+    void removeExpiredTokens() {
         QSqlQuery query(db);
-        query.prepare("DELETE FROM jwt_blacklist WHERE expires_at < :current_time");
+        query.prepare("DELETE FROM refresh_tokens WHERE expires_at < UNIX_TIMESTAMP(NOW())");
         query.bindValue(":current_time", QString::number(QDateTime::currentDateTime().toSecsSinceEpoch()));
 
         if (!query.exec()) {
-            qDebug() << "Không thể xóa các access token hết hạn từ blacklist:" << query.lastError().text();
+            qDebug() << "Không thể xóa các refresh token hết hạn :" << query.lastError().text();
         } else {
-            qDebug() << "Xóa các access token hết hạn từ blacklist thành công.";
+            qDebug() << "Xóa các refresh token hết hạn thành công.";
         }
     }
     //Hàm Kiểm Tra thời gian sống của Token
-    bool TimelifeTK(const QString &tl) {
-        QJsonDocument jsonDoc = QJsonDocument::fromJson(tl.toUtf8());
-        QJsonObject jsonObj = jsonDoc.object();
-        QString expValue = jsonObj.value("exp").toString();
-
+    bool TimelifeTK(const QString &expValue) {
         qint64 expTimestamp = expValue.toLongLong();
         QDateTime currentDateTime = QDateTime::currentDateTimeUtc();
         QDateTime expDateTime = QDateTime::fromSecsSinceEpoch(expTimestamp, Qt::UTC);
@@ -136,38 +146,54 @@ public:
     }
 
     //Hàm lấy Refresh Token từ request
-    QJsonWebToken getRFtk(const QHttpServerRequest &request)
+    QJsonWebToken getRFtk(const QString &Refreshtokn)
     {
-        QString tokenJsonString = request.body();
-        QJsonDocument jsonDocument = QJsonDocument::fromJson(tokenJsonString.toUtf8());
-        QJsonObject jsonObject = jsonDocument.object();
-        QString rfToken = jsonObject.value("refresh_token").toString();
+        QString tokenString = Refreshtokn;
         QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
         QString rfSecretKey = settings.value("REFRESH_SECRET_KEY").toString();
-        QJsonWebToken rftoken = QJsonWebToken::fromTokenAndSecret(rfToken, rfSecretKey);
+        QJsonWebToken rftoken = QJsonWebToken::fromTokenAndSecret(tokenString, rfSecretKey);
         return rftoken;
     }
     //Hàm lấy access token từ request
-    QJsonWebToken getAccesToken(const QHttpServerRequest &request){
-        QList<std::pair<QByteArray, QByteArray>> headers = request.headers();
-
-        QString accessToken = extractToken(headers);
+    QJsonWebToken getAccesToken_o2(const QString &accessToken){
 
         QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
         QString secretKey = settings.value("SECRET_KEY").toString();
         QJsonWebToken token = QJsonWebToken::fromTokenAndSecret(accessToken, secretKey);
         return token;
     }
+    QJsonWebToken getAccesToken_01(const QString &accessToken){
+        QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
+        QString secretKey = settings.value("SECRET_KEY_O1").toString();
+        QJsonWebToken token = QJsonWebToken::fromTokenAndSecret(accessToken, secretKey);
+        return token;
+    }
     // Loại bỏ tiền tố trong header request Authorizarion
-    QByteArray extractToken(const QList<std::pair<QByteArray, QByteArray>>& headers) {
+    QByteArray extractToken_o2(const QList<std::pair<QByteArray, QByteArray>>& headers) {
         for (const auto& header : headers) {
             if (header.first == "Authorization") {
                 // Loại bỏ phần "Bearer " để lấy chỉ token
                 return header.second.mid(7); // "Bearer " có độ dài là 7 ký tự
+
             }
         }
         return ""; // Trả về QString rỗng nếu không tìm thấy
     }
+
+    QByteArray extractToken_o1(const QList<std::pair<QByteArray, QByteArray>>& headers) {
+        for (const auto& header : headers) {
+            if (header.first == "Authorization") {
+                // Loại bỏ phần "OAuth oauth_token=" để lấy chỉ token
+                QByteArray authValue = header.second;
+                int startIndex = authValue.indexOf("oauth_token=\"");
+                if (startIndex != -1) {
+                    return authValue.mid(startIndex + 13, authValue.length() - startIndex - 14);
+                }
+            }
+        }
+        return ""; // Trả về QString rỗng nếu không tìm thấy
+    }
+
 
     QString getSecretKeyrftk(){
         QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
@@ -214,15 +240,31 @@ public:
             return false; // Trả về false nếu có lỗi khi thực thi truy vấn
         }
 
-        return query.next(); // Trả về true nếu tìm thấy IDtoken trong bảng jwt_blacklist, ngược lại trả về false
+        if (query.next()) // Trả về true nếu tìm thấy IDtoken trong bảng jwt_blacklist, ngược lại trả về false
+            return true;
+        else
+            return false;
     }
-    bool removeOldToken(){
-          QSqlQuery deletequery(db);
-          deletequery.prepare("DELETE FROM jwt_blacklist WHERE expires_at < :current_time");
-    };
+
+
+    QString checkingTypeTOKEN(const QList<std::pair<QByteArray, QByteArray>>& headers)
+    {
+        for (const auto& header : headers) {
+            if (header.first == "Authorization" && header.second.startsWith("OAuth")) {
+                // Loại bỏ phần "OAuth " để lấy chỉ token
+                return "OAuth";
+            }
+            if (header.first == "Authorization" && header.second.startsWith("Bearer")) {
+                // Loại bỏ phần "Bearer " để lấy chỉ token
+                return "Bearer";
+            }
+        }
+        return "";
+    }
 private:
     QSqlDatabase db;
     QTimer *cleanupBLTimer;;
+
 
 };
 #endif // TOKENMANAGER_H
