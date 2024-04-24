@@ -28,7 +28,7 @@ public:
     }
 
     //Hàm tạo accessToken
-    QString createAccessToken(const QString &userID) {
+    QString createAccessToken(const QString &userID,const QString &version) {
         QJsonWebToken jwt;
         QString ID = generateTokenId(userID);
 
@@ -41,14 +41,21 @@ public:
         jwt.appendClaim("sub", userID);
         jwt.appendClaim("jti", ID);
         jwt.appendClaim("iat", QString::number(QDateTime::currentDateTime().toSecsSinceEpoch()));
-        jwt.appendClaim("exp", QString::number(QDateTime::currentDateTime().addSecs(1 * 60 * 60).toSecsSinceEpoch()));
-
-        QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
-        QString secretKey = settings.value("SECRET_KEY").toString();
-        qDebug() << "Secret Key:" << secretKey;
-        jwt.setSecret(secretKey);
-
-        QString token = jwt.getToken();
+        if(version ==  "2.0"){
+            jwt.appendClaim("exp", QString::number(QDateTime::currentDateTime().addSecs(2 * 60 * 60).toSecsSinceEpoch()));
+            jwt.appendClaim("version",version);
+            QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
+            QString secretKey = settings.value("SECRET_KEY").toString();
+            jwt.setSecret(secretKey);
+        }
+        if(version == "1.0")
+        {   jwt.appendClaim("version",version);
+            jwt.appendClaim("exp", QString::number(QDateTime::currentDateTime().addDays(1).toSecsSinceEpoch()));
+            QSettings settings("C:/Users/vuthe/Desktop/RestFullAPI/untitled/secretkey.env", QSettings::IniFormat);
+            QString secretKey = settings.value("SECRET_KEY_O1").toString();
+            jwt.setSecret(secretKey);
+       }
+       QString token = jwt.getToken();
 
         return token;
     }
