@@ -38,7 +38,6 @@ public:
     QJsonWebToken getAccesToken_01(const QString &accessToken);
     QByteArray extractToken_o2(const QList<std::pair<QByteArray, QByteArray>> &headers);
     QByteArray extractToken_o1(const QList<std::pair<QByteArray, QByteArray>> &headers);
-    QString getSecretKeyrftk();
     bool addTKBlacklist(const QString &idToken, QString &expTime);
     bool TokenInBlacklit(const QString &IDtoken);
     QString checkingTypeTOKEN(const QList<std::pair<QByteArray, QByteArray>> &headers);
@@ -46,6 +45,7 @@ public:
 private:
     QSqlDatabase db;
     QTimer *cleanupBLTimer;
+    QString getSecretKeyrftk();
     QString generateTokenId(const QString &userID);
     void removeExpiredTokens();
 };
