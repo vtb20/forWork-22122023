@@ -18,9 +18,9 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         QString password;
 
         // kiểm tra sự tồn tại của trường content-type và giá trị cúa nó có đúng là urlencode không ?
-        if (hasContentType(request)==false)
+        if (hasContentTypeURLencode(request)==false)
         {
-            return ErrorResponse("invalid request!","Missing requied or wrong parameter!");
+            return BadRequestResponse("invalid request!","Missing requied or wrong parameter!");
         }
         // chuyển data từ bytear sang string dùng urlquery để lấy thông tin cần thiết
         QUrlQuery urlQuery(QString::fromUtf8(data));
@@ -29,20 +29,24 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         username = urlQuery.queryItemValue("username");
         password = urlQuery.queryItemValue("password");
         //Kiểm tra xem các trường này có hay không
+
         if(username.isEmpty()||password.isEmpty())
         {
-            return ErrorResponse("invalid_request","Missing username or password");
+            return BadRequestResponse("invalid_request","Missing username or password");
         }
-        // Tiếp túc sủ dụng username và password từ client để xác thực với database
+        // Tạo đối tượng User và thiết lập username và password
+        User user(db);
+        user.setUsername(username);
+        user.setPassword(password);
 
-        bool isAuthenticated = user.authenticationUser(username, password);
+        bool isAuthenticated = user.authenticationUser();
         if (isAuthenticated) {
-            QString userID = user.getUserIdByUsername(username);
+            QString userID = user.getUserIdByUsername();
             qDebug()<<"Authentication from user:"<<userID;
-            return ResponseWithTokens(userID);
+            return ResponseWithTokensO2(userID);
 
         } else {
-            return ErrorResponse("invalid_request","Wrong username or password");
+            return UnauthorizedResponse("invalid_request","Wrong username or password");
         }
     }
 
@@ -53,9 +57,9 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         QString username;
         QString password;
         // kiểm tra sự tồn tại của trường content-type và giá trị cúa nó có đúng là urlencode không ?
-        if (hasContentType(request)==false)
+        if (hasContentTypeURLencode(request)==false)
         {
-            return ErrorResponse("invalid request!","Missing requied or wrong parameter!");
+            return BadRequestResponse("invalid request!","Missing requied or wrong parameter!");
         }
         // chuyển data từ bytear sang string dùng urlquery để lấy thông tin cần thiết
         QUrlQuery urlQuery(QString::fromUtf8(data));
@@ -66,18 +70,23 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         //Kiểm tra xem các trường này có hay không
         if(username.isEmpty()||password.isEmpty())
         {
-            return ErrorResponse("invalid_request","Missing username or password");
+            return BadRequestResponse("invalid_request","Missing username or password");
         }
+
+        User user(db);
+        user.setUsername(username);
+        user.setPassword(password);
+
         // Tiếp túc sủ dụng username và password từ client để xác thực với database
-        bool isAuthenticated = user.authenticationUser(username, password);
+        bool isAuthenticated = user.authenticationUser();
         if (isAuthenticated) {
 
-            QString userID = user.getUserIdByUsername(username);
+            QString userID = user.getUserIdByUsername();
             qDebug()<<"Authentication from user:"<<userID;
             return ResponseWithOauth1Tokens(userID);
 
         } else {
-            return ErrorResponse("invalid_request","Wrong username or password");
+            return UnauthorizedResponse("invalid_request","Wrong username or password");
         }
     }
 
@@ -91,12 +100,12 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         QString refresh_token = urlQuery.queryItemValue("refresh_token");
         if (refresh_token.isEmpty())
         {
-            return ErrorResponse("invalid_request", "Missing refreshtoken in your requset");
+            return BadRequestResponse("invalid_request", "Missing refreshtoken in your requset");
         }
         QStringList listJwtParts = refresh_token.split(".");
         if (listJwtParts.count() != 3)
         {
-            return ErrorResponse("invalid_request", "token must have the format xxxx.yyyyy.zzzzz");
+            return BadRequestResponse("invalid_request", "token must have the format xxxx.yyyyy.zzzzz");
         }
         QJsonWebToken JTrftoken = Token.getRFtk(refresh_token);
         QString OldrfToken = JTrftoken.getToken();
@@ -106,7 +115,7 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         bool validateTK = JTrftoken.isValid();
         if (!validateTK)
         {
-            return ErrorResponse("invalid_request", " Refresh token is wrong");
+            return UnauthorizedResponse("invalid_request", " Refresh token is wrong");
         }
 
         // Lấy giá trị của khóa "sub" = userID
@@ -117,11 +126,11 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         //Kiểm tra thời gian sống của refresh token
         if (!Token.TimelifeTK(expime))
         {
-            return ErrorResponse("invalid_request", " Refresh token is expired");
+            return UnauthorizedResponse("invalid_request", " Refresh token is expired");
         }
         if(!Token.checkInvalidateRF(rfTokenID,refresh_token,userID))
         {
-            return ErrorResponse("invalid_request", " Your token does not exist");
+            return UnauthorizedResponse("invalid_request", " Your token does not exist");
         }
         // khởi tạo token mới cho client
         QString newACtk = Token.createAccessToken(userID,"2.0");
@@ -227,7 +236,7 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
 
             if (!query.exec()) {
                 // Xử lý lỗi khi thực hiện truy vấn
-                return ErrorResponse("Query execution error", query.lastError().text());
+                return BadRequestResponse("Query execution error", query.lastError().text());
             }
 
             QJsonArray jsonArray;
@@ -265,7 +274,7 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
 
             if (!query.exec()) {
                 // Xử lý lỗi khi thực hiện truy vấn
-                return ErrorResponse("Query execution error", query.lastError().text());
+                return BadRequestResponse("Query execution error", query.lastError().text());
             }
 
             QJsonArray jsonArray;
@@ -289,7 +298,7 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
 
 
     //Hàm phản hồi kèm access token + refresh token cho oAuth 2.0
-    QHttpServerResponse AuthenticationManager::ResponseWithTokens(const QString &userID) {
+    QHttpServerResponse AuthenticationManager::ResponseWithTokensO2(const QString &userID) {
         QString token = Token.createAccessToken(userID,"2.0");
         QString rfToken = Token.createRFtoken(userID);
 
@@ -319,8 +328,8 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         return QHttpServerResponse("application/x-www-form-urlencoded", responseBody, QHttpServerResponse::StatusCode::Ok);
     }
 
-    // Hàm khởi tạo thông báo lỗi
-    QHttpServerResponse AuthenticationManager::ErrorResponse(const QString &errorMessage,const QString &errorDetail) {
+    // Hàm khởi tạo thông báo lỗi Unauthorized
+    QHttpServerResponse AuthenticationManager::UnauthorizedResponse(const QString &errorMessage,const QString &errorDetail) {
         QJsonObject jsonResponse;
         jsonResponse["error"] = errorMessage;
         jsonResponse["error_description"] = errorDetail;
@@ -328,4 +337,26 @@ AuthenticationManager::AuthenticationManager() : db(DatabaseConnection::connect(
         QJsonDocument jsonResponseDoc(jsonResponse);
         QByteArray responseBody = jsonResponseDoc.toJson();
         return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::Unauthorized);
+    }
+
+    // Hàm khởi tạo thông báo lỗi Badrequest
+    QHttpServerResponse AuthenticationManager::BadRequestResponse(const QString &errorMessage,const QString &errorDetail) {
+        QJsonObject jsonResponse;
+        jsonResponse["error"] = errorMessage;
+        jsonResponse["error_description"] = errorDetail;
+
+        QJsonDocument jsonResponseDoc(jsonResponse);
+        QByteArray responseBody = jsonResponseDoc.toJson();
+        return QHttpServerResponse("application/json", responseBody, QHttpServerResponse::StatusCode::BadRequest);
+    }
+
+    // Hàm kiểm tra sự tồn tại của trường Content-Type và giá trị của nó
+    bool AuthenticationManager::hasContentTypeURLencode(const QHttpServerRequest &request) {
+        QList<std::pair<QByteArray, QByteArray>> headers = request.headers();
+        for (const auto &header : headers) {
+            if (header.first.toLower() == "content-type" && header.second.toLower() == "application/x-www-form-urlencoded") {
+                return true;
+            }
+        }
+        return false;
     }
