@@ -1,17 +1,26 @@
 #ifndef USER_H
 #define USER_H
+
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDebug>
 #include <QCryptographicHash>
 
-class User{
+class User {
 
 public:
+    User(QSqlDatabase &db) : db(db) {}
 
-    bool authenticationUser(const QString &username,const QString &password)
-    {
+    void setUsername(const QString &username) {
+        this->username = username;
+    }
+
+    void setPassword(const QString &password) {
+        this->password = password;
+    }
+
+    bool authenticationUser() {
         QString hashpass =  hashPassword(password);
 
         QSqlQuery query(db);
@@ -23,13 +32,10 @@ public:
             qDebug() << "Query failed:" << query.lastError().text();
             return false;
         }
-        bool isAuthenticated = query.next();
-        qDebug() << "Xác thực thành công ?:" << isAuthenticated;
-        return isAuthenticated;
+        return query.next();
+    }
 
-    };
-
-    QString getUserIdByUsername(const QString &username) {
+    QString getUserIdByUsername() {
         QSqlQuery query(db);
         query.prepare("SELECT id FROM users WHERE name = :username");
         query.bindValue(":username", username);
@@ -45,9 +51,10 @@ public:
         return QString();
     }
 
-
 private:
-    QSqlDatabase db;
+    QSqlDatabase &db;
+    QString username;
+    QString password;
 
     QString hashPassword(const QString &password) {
         QByteArray passwordBytes = password.toUtf8();
