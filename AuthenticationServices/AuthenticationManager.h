@@ -25,7 +25,7 @@ private:
 
     QSqlDatabase db;
     TokenManager Token;
-    User user;
+
 
     // bool authenticateUser(const QString &username, const QString &password);
     // QString getUserIdByUsername(const QString &username);
